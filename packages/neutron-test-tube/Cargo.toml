@@ -4,7 +4,7 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 name = "neutron-test-tube"
 repository = "https://github.com/j0nl1/neutron-test-tube"
-version = "22.1.0"
+version = "0.1.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 exclude = ["neutron", "test_artifacts"]
