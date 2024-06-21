@@ -34,12 +34,12 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 
 	// neutron
-	"github.com/neutron-org/neutron/v2/app"
-	"github.com/neutron-org/neutron/v2/testutil/consumer"
-	tokenfactorytypes "github.com/neutron-org/neutron/v2/x/tokenfactory/types"
+	"github.com/neutron-org/neutron/v4/app"
+	"github.com/neutron-org/neutron/v4/testutil/consumer"
+	tokenfactorytypes "github.com/neutron-org/neutron/v4/x/tokenfactory/types"
 
 	// interchain security
-	consumertypes "github.com/cosmos/interchain-security/v3/x/ccv/consumer/types"
+	consumertypes "github.com/cosmos/interchain-security/v5/x/ccv/consumer/types"
 )
 
 func GenesisStateWithValSet(codec codec.Codec,
