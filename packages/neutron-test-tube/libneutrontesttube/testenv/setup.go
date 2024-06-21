@@ -9,13 +9,14 @@ import (
 
 	// tendermint
 	"cosmossdk.io/errors"
-	dbm "github.com/cometbft/cometbft-db"
+	"cosmossdk.io/log"
+	"cosmossdk.io/math"
 	abci "github.com/cometbft/cometbft/abci/types"
-	"github.com/cometbft/cometbft/libs/log"
 	tmtypes "github.com/cometbft/cometbft/types"
+	dbm "github.com/cosmos/cosmos-db"
 
 	// cosmos-sdk
-	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -60,7 +61,7 @@ func GenesisStateWithValSet(codec codec.Codec,
 	initValPowers := []abci.ValidatorUpdate{}
 
 	for _, val := range valSet.Validators {
-		pk, _ := cryptocodec.FromTmPubKeyInterface(val.PubKey)
+		pk, _ := cryptocodec.FromCmtPubKeyInterface(val.PubKey)
 		pkAny, _ := codectypes.NewAnyWithValue(pk)
 		validator := stakingtypes.Validator{
 			OperatorAddress:   sdk.ValAddress(val.Address).String(),
@@ -68,15 +69,15 @@ func GenesisStateWithValSet(codec codec.Codec,
 			Jailed:            false,
 			Status:            stakingtypes.Bonded,
 			Tokens:            bondAmt,
-			DelegatorShares:   sdk.OneInt().ToLegacyDec(),
+			DelegatorShares:   math.LegacyOneDec(),
 			Description:       stakingtypes.Description{},
 			UnbondingHeight:   int64(0),
 			UnbondingTime:     time.Unix(0, 0).UTC(),
-			Commission:        stakingtypes.NewCommission(sdk.ZeroInt().ToLegacyDec(), sdk.ZeroInt().ToLegacyDec(), sdk.ZeroInt().ToLegacyDec()),
-			MinSelfDelegation: sdk.ZeroInt(),
+			Commission:        stakingtypes.NewCommission(math.LegacyZeroDec(), math.LegacyZeroDec(), math.LegacyZeroDec()),
+			MinSelfDelegation: math.ZeroInt(),
 		}
 		validators = append(validators, validator)
-		delegations = append(delegations, stakingtypes.NewDelegation(genAccs[0].GetAddress(), val.Address.Bytes(), sdk.OneDec()))
+		delegations = append(delegations, stakingtypes.NewDelegation(genAccs[0].GetAddress().String(), val.Address.String(), math.LegacyOneDec()))
 
 		// add initial validator powers so consumer InitGenesis runs correctly
 		pub, _ := val.ToProto()
@@ -164,7 +165,6 @@ func NewNeutronApp(nodeHome string) *app.App {
 	var wasmOptions = []wasmkeeper.Option{}
 	encoding := app.MakeEncodingConfig()
 	db := dbm.NewMemDB()
-	app.GetDefaultConfig()
 
 	return app.New(
 		log.NewNopLogger(),
@@ -203,7 +203,7 @@ func InitChain(appInstance *app.App) (sdk.Context, secp256k1.PrivKey) {
 
 	balance := banktypes.Balance{
 		Address: acc.GetAddress().String(),
-		Coins:   sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(100000000000000))),
+		Coins:   sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(100000000000000))),
 	}
 
 	genesisState := app.NewDefaultGenesisState(appInstance.AppCodec())
@@ -219,7 +219,7 @@ func InitChain(appInstance *app.App) (sdk.Context, secp256k1.PrivKey) {
 	requireNoErr(err)
 
 	appInstance.InitChain(
-		abci.RequestInitChain{
+		&abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: simtestutil.DefaultConsensusParams,
 			AppStateBytes:   stateBytes,
@@ -227,30 +227,20 @@ func InitChain(appInstance *app.App) (sdk.Context, secp256k1.PrivKey) {
 		},
 	)
 
-	ctx := appInstance.NewContext(false, cmtproto.Header{Height: 0, ChainID: "neutron-1", Time: time.Now().UTC()})
+	ctx := appInstance.NewContext(false)
 
 	return ctx, secp256k1.PrivKey{Key: privVal.PrivKey.Bytes()}
 }
 
 func (env *TestEnv) BeginNewBlock(timeIncreaseSeconds uint64) {
-	pbKey, _ := cryptocodec.ToTmPubKeyInterface(env.ValPrivs[0].PubKey())
-	validator := tmtypes.NewValidator(pbKey, 1)
 
 	newBlockTime := env.Ctx.BlockTime().Add(time.Duration(timeIncreaseSeconds) * time.Second)
-	header := cmtproto.Header{ChainID: "neutron-1", Height: env.Ctx.BlockHeight() + 1, Time: newBlockTime}
+
 	newCtx := env.Ctx.WithBlockTime(newBlockTime).WithBlockHeight(env.Ctx.BlockHeight() + 1)
 	env.Ctx = newCtx
 
-	lastCommitInfo := abci.CommitInfo{
-		Votes: []abci.VoteInfo{{
-			Validator:       abci.Validator{Address: validator.Address, Power: 100},
-			SignedLastBlock: true,
-		}},
-	}
-	reqBeginBlock := abci.RequestBeginBlock{Header: header, LastCommitInfo: lastCommitInfo}
-
-	env.App.BeginBlock(reqBeginBlock)
-	env.Ctx = env.App.NewContext(false, reqBeginBlock.Header)
+	env.App.BeginBlocker(env.Ctx)
+	env.Ctx = env.App.NewContext(false)
 
 }
 
@@ -275,7 +265,8 @@ func (env *TestEnv) FundAccount(accAddr sdk.AccAddress, coins sdk.Coins) {
 }
 
 func (env *TestEnv) GetValidatorAddresses() []string {
-	validators := env.App.ConsumerKeeper.GetAllValidators(env.Ctx)
+	validators, err := env.App.ConsumerKeeper.GetAllValidators(env.Ctx)
+	requireNoErr(err)
 	var addresses []string
 	for _, validator := range validators {
 		addresses = append(addresses, validator.OperatorAddress)
@@ -285,7 +276,8 @@ func (env *TestEnv) GetValidatorAddresses() []string {
 }
 
 func (env *TestEnv) SetupDefaultValidator() {
-	validators := env.App.ConsumerKeeper.GetAllValidators(env.Ctx)
+	validators, err := env.App.ConsumerKeeper.GetAllValidators(env.Ctx)
+	requireNoErr(err)
 	valAddrFancy, err := validators[0].GetConsAddr()
 	requireNoErr(err)
 	env.setupDefaultValidatorSigningInfo(valAddrFancy)

@@ -70,8 +70,7 @@ func InitTestEnv() uint64 {
 	env.BeginNewBlock(5)
 	env.FundValidators()
 
-	reqEndBlock := abci.RequestEndBlock{Height: env.Ctx.BlockHeight()}
-	env.App.EndBlock(reqEndBlock)
+	env.App.EndBlocker(env.Ctx)
 	env.App.Commit()
 
 	envCounter += 1
@@ -148,8 +147,7 @@ func BeginBlock(envId uint64) {
 //export EndBlock
 func EndBlock(envId uint64) {
 	env := loadEnv(envId)
-	reqEndBlock := abci.RequestEndBlock{Height: env.Ctx.BlockHeight()}
-	env.App.EndBlock(reqEndBlock)
+	env.App.EndBlocker(env.Ctx)
 	env.App.Commit()
 	envRegister.Store(envId, env)
 }
@@ -190,13 +188,12 @@ func Execute(envId uint64, base64ReqDeliverTx string) *C.char {
 		panic(err)
 	}
 
-	reqDeliverTx := abci.RequestDeliverTx{}
-	err = proto.Unmarshal(reqDeliverTxBytes, &reqDeliverTx)
+	proposalReq := abci.RequestProcessProposal{Txs: [][]byte{reqDeliverTxBytes}}
 	if err != nil {
 		return encodeErrToResultBytes(result.ExecuteError, err)
 	}
 
-	resDeliverTx := env.App.DeliverTx(reqDeliverTx)
+	resDeliverTx, err := env.App.ProcessProposal(proposalReq)
 	bz, err := proto.Marshal(&resDeliverTx)
 
 	if err != nil {
